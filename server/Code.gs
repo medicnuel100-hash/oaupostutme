@@ -67,7 +67,9 @@ function setup() {
       ['autoApprove', 'TRUE'],
       ['requestsOpen', 'TRUE'],
       ['fromName', 'OAU Post-UTME Prep'],
-      ['siteUrl', '']
+      ['siteUrl', ''],
+      ['timezone', 'Africa/Lagos'],
+      ['adminToken', Utilities.getUuid().replace(/-/g, '').slice(0, 24)]
     ].forEach(function (r) { set.appendRow(r); });
     set.getRange(1, 1, 1, 2).setFontWeight('bold').setBackground('#efeaff');
     set.setFrozenRows(1);
@@ -77,15 +79,16 @@ function setup() {
 
   var pap = book.getSheetByName(TAB_PAPERS) || book.insertSheet(TAB_PAPERS);
   if (pap.getLastRow() === 0) {
-    pap.appendRow(['day', 'title', 'questionCount', 'durationMinutes', 'file', 'key']);
+    pap.appendRow(['day', 'date', 'title', 'questionCount', 'durationMinutes', 'file', 'key']);
     for (var d = 1; d <= 7; d++) {
-      pap.appendRow([d, 'Day ' + d, 40, 30, 'data/day' + d + '.json', '']);
+      pap.appendRow([d, '', 'Day ' + d, 40, 30, 'data/day' + d + '.json', '']);
     }
-    pap.getRange(1, 1, 1, 6).setFontWeight('bold').setBackground('#efeaff');
+    pap.getRange(1, 1, 1, 7).setFontWeight('bold').setBackground('#efeaff');
     pap.setFrozenRows(1);
-    pap.setColumnWidth(2, 260);
-    pap.setColumnWidth(5, 180);
-    pap.setColumnWidth(6, 300);
+    pap.setColumnWidth(2, 110);
+    pap.setColumnWidth(3, 260);
+    pap.setColumnWidth(6, 180);
+    pap.setColumnWidth(7, 300);
   }
 
   book.toast('QuickCBT is set up. Now deploy this as a Web app.', 'Ready', 8);
@@ -115,7 +118,7 @@ function sendPendingCodes() {
   var sent = 0;
   for (var i = 0; i < rows.length; i++) {
     if (String(rows[i][COL.status - 1]) !== 'pending') continue;
-    if (String(rows[i][COL.day - 1]) !== String(cfg.day)) continue;
+    if (String(rows[i][COL.day - 1]) !== String(activeDay())) continue;
     if (sendCodeEmail(rows[i][COL.email - 1], rows[i][COL.code - 1], cfg)) {
       sheet.getRange(i + 2, COL.status).setValue('issued');
       sent++;
@@ -181,19 +184,59 @@ function paperFor(day) {
   var sheet = ss().getSheetByName(TAB_PAPERS);
   if (!sheet || sheet.getLastRow() < 2) return fallback;
 
-  var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, 6).getValues();
+  var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, 7).getValues();
   for (var i = 0; i < rows.length; i++) {
     if (String(rows[i][0]).trim() === String(day)) {
       return {
-        title: String(rows[i][1] || fallback.title),
-        questionCount: Number(rows[i][2]) || fallback.questionCount,
-        durationMinutes: Number(rows[i][3]) || fallback.durationMinutes,
-        file: String(rows[i][4] || fallback.file).trim(),
-        key: String(rows[i][5] || '')
+        date: dateStr(rows[i][1]),
+        title: String(rows[i][2] || fallback.title),
+        questionCount: Number(rows[i][3]) || fallback.questionCount,
+        durationMinutes: Number(rows[i][4]) || fallback.durationMinutes,
+        file: String(rows[i][5] || fallback.file).trim(),
+        key: String(rows[i][6] || '')
       };
     }
   }
   return fallback;
+}
+
+/* ------------------------------------------------------------------ *
+ * Which paper is live today
+ * ------------------------------------------------------------------ */
+
+function tz() { return String(settings().timezone || 'Africa/Lagos'); }
+
+function dateStr(v) {
+  if (!v && v !== 0) return '';
+  if (v instanceof Date) return Utilities.formatDate(v, tz(), 'yyyy-MM-dd');
+  return String(v).trim().slice(0, 10);
+}
+
+function today() { return Utilities.formatDate(new Date(), tz(), 'yyyy-MM-dd'); }
+
+/**
+ * The live day is whichever Papers row carries today's date. If no row has a
+ * date at all, fall back to the manual Settings "day" so the old flow keeps
+ * working. If rows ARE dated and none matches today, nothing is live -- that
+ * is what stops a day-3 paper being reachable on day 2.
+ */
+function activeDay() {
+  var sheet = ss().getSheetByName(TAB_PAPERS);
+  var now = today();
+  var dated = false;
+
+  if (sheet && sheet.getLastRow() > 1) {
+    var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, 7).getValues();
+    for (var i = 0; i < rows.length; i++) {
+      var d = dateStr(rows[i][1]);
+      if (d) dated = true;
+      if (d && d === now) return String(rows[i][0]).trim();
+    }
+  }
+  if (dated) return null;
+
+  var manual = settings().day;
+  return (manual === '' || manual == null) ? null : String(manual);
 }
 
 function isTrue(v) { return String(v).trim().toUpperCase() === 'TRUE'; }
@@ -277,7 +320,7 @@ function millis(v) {
 
 function sendCodeEmail(email, code, cfg) {
   var site = String(cfg.siteUrl || '');
-  var title = String(paperFor(cfg.day).title || 'Today\'s practice test');
+  var title = String(paperFor(activeDay()).title || 'Today\'s practice test');
   var html =
     '<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:520px;margin:0 auto;padding:28px 24px;color:#131728">' +
       '<div style="font-size:13px;letter-spacing:.12em;text-transform:uppercase;color:#7c5cff;font-weight:700">' +
@@ -347,6 +390,7 @@ function doPost(e) {
 function handle(req) {
   switch (String(req.action || '')) {
     case 'ping':    return ping();
+    case 'config':  return configure(req);
     case 'request': return requestCode(req);
     case 'start':   return startCheck(req);
     case 'begin':   return begin(req);
@@ -355,12 +399,56 @@ function handle(req) {
   }
 }
 
+/**
+ * Written to only by publish.py, which holds the adminToken from the Settings
+ * tab. Replaces the Papers rows wholesale so the sheet always mirrors the
+ * files that were just published.
+ */
+function configure(req) {
+  var cfg = settings();
+  var token = String(cfg.adminToken || '');
+  if (!token) return { ok: false, error: 'no_admin_token' };
+  if (String(req.token || '') !== token) return { ok: false, error: 'bad_token' };
+
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    if (req.papers && req.papers.length) {
+      var sheet = ss().getSheetByName(TAB_PAPERS) || ss().insertSheet(TAB_PAPERS);
+      if (sheet.getLastRow() === 0) {
+        sheet.appendRow(['day', 'date', 'title', 'questionCount', 'durationMinutes', 'file', 'key']);
+      }
+      if (sheet.getLastRow() > 1) {
+        sheet.getRange(2, 1, sheet.getLastRow() - 1, 7).clearContent();
+      }
+      var rows = req.papers.map(function (p) {
+        return [p.day, p.date, p.title, p.questionCount, p.durationMinutes, p.file, p.key];
+      });
+      sheet.getRange(2, 1, rows.length, 7).setValues(rows);
+      sheet.getRange(2, 2, rows.length, 1).setNumberFormat('@');   // keep dates as text
+    }
+
+    if (req.settings) {
+      for (var k in req.settings) {
+        if (Object.prototype.hasOwnProperty.call(req.settings, k)) setSetting(k, req.settings[k]);
+      }
+    }
+
+    return { ok: true, papers: (req.papers || []).length, today: today(), activeDay: activeDay() };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 function ping() {
   var cfg = settings();
-  var paper = paperFor(cfg.day);
+  var day = activeDay();
+  var paper = paperFor(day);
   return {
     ok: true,
-    day: cfg.day,
+    today: today(),
+    day: day,
+    live: day !== null,
     title: paper.title,
     durationMinutes: paper.durationMinutes,
     questionCount: paper.questionCount,
@@ -380,7 +468,8 @@ function requestCode(req) {
   var email = normalizeEmail(req.email);
   if (!isEmail(email)) return { ok: false, error: 'bad_email' };
 
-  var day = String(cfg.day);
+  var day = activeDay();
+  if (day === null) return { ok: false, error: 'no_paper_today' };
   var lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
@@ -416,7 +505,8 @@ function startCheck(req) {
   var cfg = settings();
   var email = normalizeEmail(req.email);
   var code = String(req.code || '').trim().toUpperCase();
-  var day = String(cfg.day);
+  var day = activeDay();
+  if (day === null) return { ok: false, error: 'no_paper_today' };
 
   var found = findAttempt(email, day);
   if (!found || String(found.values[COL.code - 1]).toUpperCase() !== code) {
@@ -451,7 +541,8 @@ function begin(req) {
   var cfg = settings();
   var email = normalizeEmail(req.email);
   var code = String(req.code || '').trim().toUpperCase();
-  var day = String(cfg.day);
+  var day = activeDay();
+  if (day === null) return { ok: false, error: 'no_paper_today' };
 
   var lock = LockService.getScriptLock();
   lock.waitLock(20000);
@@ -499,7 +590,8 @@ function submitResult(req) {
   var cfg = settings();
   var email = normalizeEmail(req.email);
   var code = String(req.code || '').trim().toUpperCase();
-  var day = String(cfg.day);
+  var day = activeDay();
+  if (day === null) return { ok: false, error: 'no_paper_today' };
 
   var lock = LockService.getScriptLock();
   lock.waitLock(20000);

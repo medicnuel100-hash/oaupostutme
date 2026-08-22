@@ -3,6 +3,9 @@
 # into data/questions.json (via admin.html) and push only that.
 question-bank/
 
+# Admin token for publish.py -- must never reach GitHub
+.quickcbt.json
+
 # Local notes / drafts
 drafts/
 *.draft.json
