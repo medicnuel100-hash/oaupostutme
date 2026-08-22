@@ -226,6 +226,12 @@ h2 { font-size: clamp(1.3rem, 3.5vw, 1.7rem); }
   display: none;
 }
 .alert.show { display: block; }
+.alert.good {
+  background: var(--ok-bg);
+  border-color: var(--ok);
+  color: var(--ok);
+}
+
 
 /* Brief screen ------------------------------------------------------ */
 .rules { list-style: none; padding: 0; margin: 1.5rem 0 0; display: grid; gap: 0.7rem; }

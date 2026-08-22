@@ -50,6 +50,23 @@
   </section>
 
   <section class="card" style="margin-top:1.2rem">
+    <h2>Backend connection</h2>
+    <p class="lede">Paste your Apps Script <b>/exec</b> URL and check it answers before the students do.</p>
+    <div class="field">
+      <label for="apiUrl">Apps Script web app URL</label>
+      <input id="apiUrl" type="text" placeholder="https://script.google.com/macros/s/..../exec">
+    </div>
+    <div class="row">
+      <button class="btn ghost" id="pingBtn" type="button">Test connection</button>
+    </div>
+    <div class="field">
+      <label for="pingOut">Response</label>
+      <textarea id="pingOut" class="box" style="min-height:130px" readonly
+        placeholder="Should report the current day, duration, question count and how many emails you have left today."></textarea>
+    </div>
+  </section>
+
+  <section class="card" style="margin-top:1.2rem">
     <h2>Daily checklist</h2>
     <ul class="rules">
       <li><span class="dot">1</span><span>Copy tomorrow's questions out of <b>question-bank/</b> into the box above.</span></li>
@@ -203,6 +220,45 @@
         toast("questions.json downloaded");
       })
       .catch(function (e) { out.value = "Encryption failed: " + e.message; });
+  });
+
+  /* ---- backend ping ---- */
+  $("pingBtn").addEventListener("click", function () {
+    var url = $("apiUrl").value.trim();
+    var box = $("pingOut");
+    if (!/^https:\/\/script\.google\.com\/.*\/exec$/.test(url)) {
+      box.value = 'That does not look like a deployed web app URL.\nIt must be the one ending in /exec, not /dev.';
+      return;
+    }
+    box.value = "Calling…";
+    fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action: "ping" })
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        box.value = !d.ok
+          ? "The script answered but reported: " + JSON.stringify(d, null, 2)
+          : "Connected.\n\n" +
+            "Day:             " + d.day + "\n" +
+            "Title:           " + d.title + "\n" +
+            "Duration:        " + d.durationMinutes + " min\n" +
+            "Question count:  " + d.questionCount + (d.questionCount ? "" : "   <-- set this in the Settings tab") + "\n" +
+            "Paper encrypted: " + (d.paperEncrypted ? "yes" : "no") + "\n" +
+            "Requests open:   " + (d.requestsOpen ? "yes" : "no") + "\n" +
+            "Approval:        " + (d.autoApprove ? "automatic" : "manual - use the QuickCBT menu in the sheet") + "\n" +
+            "Emails left:     " + d.mailQuotaLeft + " today\n\n" +
+            'Paste this URL into data/access.json as "apiUrl".';
+      })
+      .catch(function (e) {
+        box.value =
+          "Could not reach it: " + e.message + "\n\n" +
+          "Almost always one of these:\n" +
+          "  1. Deployment access is not set to \"Anyone\" (\"Anyone with a Google account\" will not work).\n" +
+          "  2. You edited Code.gs but did not Deploy > Manage deployments > New version.\n" +
+          "  3. The URL is the /dev one instead of /exec.";
+      });
   });
 })();
 </script>

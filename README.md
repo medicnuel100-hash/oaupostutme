@@ -1,11 +1,13 @@
 # QuickCBT
 
-A small, fast, static CBT app for daily exam practice. Students enter a whitelisted
-email plus the day's access code, sit a timed paper, and get instant feedback on
-every question — including why the option *they* picked is wrong, not just why the
-correct one is right.
+A small, fast CBT app for daily exam practice. A student asks for a code, it
+arrives in their inbox, and it works exactly once. They sit a timed paper and get
+instant feedback on every question — including why the option *they* picked is
+wrong, not just why the correct one is right.
 
-No server, no database, no build step. It runs on GitHub Pages.
+The site is static and runs free on GitHub Pages. Access control, the one-attempt
+rule and the clock live in a free Google Apps Script backend attached to a
+spreadsheet you own. No hosting bill, no card, no new accounts.
 
 ---
 
@@ -43,6 +45,7 @@ A minute later it is live at `https://<you>.github.io/<repo>/`.
     "subtitle": "Daily timed practice — Great Ife, here we come.",
     "supportContact": "you@gmail.com"
   },
+  "apiUrl": "https://script.google.com/macros/s/..../exec",
   "dayCode": "OAU-DAY1",
   "dayCodeHash": "",
   "resultsEndpoint": "",
@@ -53,14 +56,15 @@ A minute later it is live at `https://<you>.github.io/<repo>/`.
 }
 ```
 
-- **`allowedEmails`** — the whitelist. To let a friend join, add their Gmail here
-  and push. Nobody else can start the test. Gmail dots and `+tags` are normalised,
-  so `t.e.s.t+x@gmail.com` cannot be used to sneak in a second attempt.
+- **`apiUrl`** — your Apps Script web app URL. Setting it turns on code mode and
+  makes everything below it unused. See [SETUP-SHEET.md](SETUP-SHEET.md).
+- **`allowedEmails`** — local mode only: the whitelist. Gmail dots and `+tags` are
+  normalised everywhere, so `t.e.s.t+x@gmail.com` cannot sneak in a second attempt.
 - **`dayCode`** — the plain code you send out each morning. Fine to start with.
 - **`dayCodeHash`** — the safer version: put the SHA-256 of the code here and leave
   `dayCode` empty, so the code is not sitting in your public repo. `admin.html`
   generates it.
-- **`resultsEndpoint`** — optional, see *Seeing everyone's scores* below.
+- **`resultsEndpoint`** — local mode only. In code mode scores go to the sheet.
 
 ### `data/questions.json`
 
@@ -116,61 +120,65 @@ there ever reaches GitHub. Each morning:
 5. Hit **Hash the code**, paste the hash into `access.json` as `dayCodeHash`, and
    set `dayCode` to `""`.
 6. `git add . && git commit -m "Day 2" && git push`
-7. Send the code to the students.
+7. In the sheet: **QuickCBT → Move to the next day**, then update `title`,
+   `questionCount` and `paperKey` in the Settings tab.
 
-Steps 4–5 are optional. Skip them and ship the plain JSON with a plain `dayCode`
-if you are in a hurry — everything still works.
-
----
-
-## Seeing everyone's scores
-
-Optional, takes about three minutes, and gives you one spreadsheet of every
-submission.
-
-1. Create a Google Sheet. **Extensions → Apps Script.** Paste:
-
-```js
-function doPost(e) {
-  var d = JSON.parse(e.postData.contents);
-  SpreadsheetApp.getActiveSpreadsheet().getActiveSheet().appendRow([
-    new Date(), d.email, d.day, d.title, d.correct, d.total,
-    d.percent, d.secondsUsed, d.timedOut, d.tabSwitches
-  ]);
-  return ContentService.createTextOutput("ok");
-}
-```
-
-2. **Deploy → New deployment → Web app**, execute as *Me*, access *Anyone*.
-3. Paste the resulting URL into `resultsEndpoint` in `access.json`.
-
-Every submission now lands in the sheet with the score, the time taken, whether
-the clock ran out, and how many times the student left the tab.
+Steps 4–5 are optional — ship the plain JSON if you are in a hurry. In code mode
+the day code in step 5 is not used at all; students get their own codes instead.
 
 ---
+
+## Two modes
+
+The app reads `apiUrl` in `data/access.json` and switches itself:
+
+**Local mode** (`apiUrl` empty) — one shared day code, a whitelist in the repo,
+attempt lock in the browser. Good for a dry run.
+
+**Code mode** (`apiUrl` set) — the real thing. A free Google Apps Script backend
+issues **one code per gmail**, emails it from your own Gmail, consumes it on
+first use, and owns the clock. Students press "Email me my access code" on the
+page; you can approve each address first if you want.
+
+Setup is in **[SETUP-SHEET.md](SETUP-SHEET.md)** — about 15 minutes, no new
+accounts, nothing to pay. The script itself is `server/Code.gs`.
+
+In code mode you get, per student per day: when they asked, whether you
+approved, when they started, when they submitted, their score, how long they
+took, whether the clock beat them, and how many times they left the tab.
 
 ## What this does and does not stop
 
-Built in:
+In code mode:
 
-- Only whitelisted emails can start.
-- One attempt per email — a finished attempt shows a lock screen instead of the paper.
+- **One code per gmail**, emailed to that address. Requesting twice resends the
+  same code; it never mints a second.
+- **The code is bound to the email.** Passing it to a friend does nothing — the
+  server finds the row by email first, then checks the code on it.
+- **Used once, server-side.** Clearing site data, another browser, another
+  laptop: the attempt is already spent.
+- **The clock is on the server.** Closing the tab does not pause it and cannot
+  be reset.
+- **Optional manual approval** — every request waits as `pending` until you
+  release it from the sheet menu.
 - Refreshing mid-test resumes where they left off with the clock still running down,
   so there is no reloading away from a hard question.
 - Randomised question and option order per student.
 - Tab switches are counted and reported.
 - The clock is absolute — closing the laptop does not pause it.
 
-Be clear-eyed about the limits. This is a static site, so everything runs in the
-student's own browser:
+Be clear-eyed about the limits:
 
-- **The attempt lock is browser-local.** Clearing site data, or switching to
-  another browser or device, gives a determined student a second attempt.
-- **Encryption buys time, not secrecy.** Once you release the code, someone
-  technical enough could pull the answers out of the decrypted paper. Against
-  juniors racing a 15-minute clock this is plenty; against a motivated cheat it
-  is not.
+- **A student can still register a new gmail.** No system fixes that without
+  checking ID. What you get instead is that every new address shows up in your
+  sheet before it is let in, and with manual approval it needs your click.
+- **Encryption buys time, not secrecy.** Someone in devtools during their own
+  attempt can still dig the paper out. Against juniors racing a 15-minute clock
+  this is plenty.
+- **In local mode the lock is browser-local** and a cleared cache defeats it.
+  That is what code mode exists to fix.
 
-If it ever needs to be airtight, the fix is a real backend — the same front end
-can talk to Supabase or Firebase with a server-side attempt record, and the
-scoring moves off the client. That is a rewrite of the middle, not the whole app.
+Supabase or Firebase would buy nothing over this: they enforce the same
+one-attempt-per-email rule, are equally powerless against a second gmail, and
+neither can send an email without signing up for a third-party mail service on
+top.

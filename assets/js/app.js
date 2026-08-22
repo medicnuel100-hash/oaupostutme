@@ -1,6 +1,14 @@
 /* ============================================================
    QuickCBT — client app
-   Static, no backend. Attempt-locking lives in localStorage.
+
+   Two modes, chosen automatically from data/access.json:
+
+   API mode   (apiUrl is set) — a Google Apps Script backend issues one code
+              per email, consumes it on first use, and owns the clock. The
+              attempt lock is server-side and survives cleared browser data.
+
+   Local mode (no apiUrl)     — a shared day code and a whitelist in the repo,
+              with the attempt lock in localStorage. Fine for a dry run.
 ============================================================ */
 (function () {
   "use strict";
@@ -10,9 +18,13 @@
   var QUESTIONS_URL = "data/questions.json";
 
   var access = null;   // access.json
+  var api = "";        // Apps Script /exec URL, empty in local mode
   var quiz = null;     // decoded questions.json
-  var session = null;  // live attempt
+  var server = null;   // what the backend told us about this attempt
+  var session = null;  // live attempt (answers + progress)
   var tick = null;     // timer interval
+
+  var isApi = function () { return !!api; };
 
   /* ---------- tiny helpers ---------- */
   var $ = function (id) { return document.getElementById(id); };
@@ -46,7 +58,8 @@
   }
 
   /* Gmail treats dots and +tags as noise, so two "different" addresses can be
-     the same inbox. Normalise so nobody slips a second attempt through. */
+     the same inbox. This must stay identical to normalizeEmail() in Code.gs,
+     or a code gets issued against one spelling and checked against another. */
   function normalizeEmail(raw) {
     var e = String(raw || "").trim().toLowerCase();
     var at = e.lastIndexOf("@");
@@ -60,6 +73,8 @@
     }
     return local + "@" + domain;
   }
+
+  function validEmail(e) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e); }
 
   function sha256Hex(text) {
     var bytes = new TextEncoder().encode(text);
@@ -76,23 +91,24 @@
     return out;
   }
 
-  /* Optional: questions.json can be shipped encrypted with the day code as the
-     key, so the answers are not sitting in the public repo before the session. */
-  function decryptPayload(payload, code) {
+  /* questions.json can be shipped encrypted. In API mode the key is held in
+     the sheet and only handed over once a code has been consumed, so the
+     answers are not sitting in the public repo before the session. */
+  function decryptPayload(payload, key) {
     var salt = b64ToBytes(payload.salt);
     var iv = b64ToBytes(payload.iv);
     var data = b64ToBytes(payload.data);
     var enc = new TextEncoder();
     return crypto.subtle
-      .importKey("raw", enc.encode(code), "PBKDF2", false, ["deriveKey"])
+      .importKey("raw", enc.encode(key), "PBKDF2", false, ["deriveKey"])
       .then(function (baseKey) {
         return crypto.subtle.deriveKey(
           { name: "PBKDF2", salt: salt, iterations: 120000, hash: "SHA-256" },
           baseKey, { name: "AES-GCM", length: 256 }, false, ["decrypt"]
         );
       })
-      .then(function (key) {
-        return crypto.subtle.decrypt({ name: "AES-GCM", iv: iv }, key, data);
+      .then(function (k) {
+        return crypto.subtle.decrypt({ name: "AES-GCM", iv: iv }, k, data);
       })
       .then(function (plain) {
         return JSON.parse(new TextDecoder().decode(plain));
@@ -108,9 +124,40 @@
     return a;
   }
 
+  /* ---------- backend ---------- */
+  /* text/plain dodges the CORS preflight that Apps Script cannot answer. */
+  function callApi(action, payload) {
+    var body = JSON.stringify(Object.assign({ action: action }, payload || {}));
+    return fetch(api, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: body
+    }).then(function (r) {
+      if (!r.ok) throw new Error("http_" + r.status);
+      return r.json();
+    });
+  }
+
+  var API_MESSAGES = {
+    closed:      "Code requests are closed right now. Check with your tutor.",
+    bad_email:   "That does not look like a valid email address.",
+    done:        "You have already sat this test.",
+    in_progress: "Your attempt is already running. Enter the code you were sent to continue it.",
+    pending:     "Your request is waiting to be approved. You will get the code by email once it is.",
+    no_code:     "That code does not match this email address.",
+    expired:     "Your time for this test has already run out.",
+    mail_failed: "The email could not be sent. Tell your tutor the daily mail limit may be reached.",
+    server:      "The server hit an error. Try once more, then tell your tutor."
+  };
+
+  function apiMessage(res) {
+    return API_MESSAGES[res && res.error] || "Something went wrong. Try again in a moment.";
+  }
+
   /* ---------- storage ---------- */
   function keyFor(email) {
-    return STORE + "." + (quiz.meta.day || "d") + "." + email;
+    var day = (server && server.day) || (quiz && quiz.meta && quiz.meta.day) || "d";
+    return STORE + "." + day + "." + email;
   }
   function loadSession(email) {
     try { return JSON.parse(localStorage.getItem(keyFor(email)) || "null"); }
@@ -119,7 +166,7 @@
   function saveSession() {
     if (!session) return;
     try { localStorage.setItem(keyFor(session.email), JSON.stringify(session)); }
-    catch (e) { /* private mode — the attempt just will not survive a refresh */ }
+    catch (e) { /* private mode — progress just will not survive a refresh */ }
   }
 
   /* ---------- theme ---------- */
@@ -140,14 +187,25 @@
       .then(function (r) { if (!r.ok) throw new Error("access"); return r.json(); })
       .then(function (json) {
         access = json;
+        api = String(json.apiUrl || "").trim();
+
         var a = access.app || {};
         if (a.title) {
           $("brandName").textContent = a.title;
           document.title = a.title + " — QuickCBT";
         }
         if (a.subtitle) $("appSubtitle").textContent = a.subtitle;
-        if (a.supportContact) {
-          $("supportLine").innerHTML = "No access yet? Message " + esc(a.supportContact) + " to be added.";
+
+        if (isApi()) {
+          $("requestRow").style.display = "";
+          $("emailHint").textContent =
+            "Your code is emailed to this address, so use one you can open now.";
+          $("codeHint").textContent =
+            "The 6-character code from your email. It works once, on this address only.";
+          $("supportLine").textContent =
+            "Code not arriving? Check your spam folder before asking for another.";
+        } else if (a.supportContact) {
+          $("supportLine").textContent = "No access yet? Message " + a.supportContact + " to be added.";
         }
       })
       .catch(function () {
@@ -160,7 +218,44 @@
     var el = $("gateError");
     el.textContent = msg;
     el.classList.add("show");
+    $("requestNote").classList.remove("show");
   }
+
+  function gateNote(msg) {
+    var el = $("requestNote");
+    el.textContent = msg;
+    el.classList.add("show");
+    $("gateError").classList.remove("show");
+  }
+
+  /* ---------- request a code ---------- */
+  $("requestBtn").addEventListener("click", function () {
+    var btn = this;
+    var email = normalizeEmail($("email").value);
+    if (!validEmail(email)) return gateError("Enter your email address first.");
+
+    btn.disabled = true;
+    btn.textContent = "Sending…";
+
+    callApi("request", { email: email })
+      .then(function (res) {
+        if (!res.ok) return gateError(apiMessage(res));
+        if (res.pending) {
+          gateNote("Request received. Your tutor will approve it and the code will arrive by email.");
+        } else if (res.resent) {
+          gateNote("You already had a code — it has been sent again to " + email + ". Check spam too.");
+        } else {
+          gateNote("Code sent to " + email + ". Check your inbox, and your spam folder.");
+        }
+      })
+      .catch(function () {
+        gateError("Could not reach the server. Check your connection and try again.");
+      })
+      .then(function () {
+        btn.disabled = false;
+        btn.textContent = "Email me my access code";
+      });
+  });
 
   /* ---------- gate ---------- */
   $("gateForm").addEventListener("submit", function (ev) {
@@ -171,118 +266,222 @@
     var code = $("code").value.trim();
     var btn = $("gateBtn");
 
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      return gateError("That does not look like a valid email address.");
-    }
-    if (!code) return gateError("Enter today's access code.");
-
-    var allowed = (access.allowedEmails || []).map(normalizeEmail);
-    if (allowed.indexOf(email) === -1) {
-      return gateError("This email has not been given access. Ask to be added, then try again.");
-    }
+    if (!validEmail(email)) return gateError("That does not look like a valid email address.");
+    if (!code) return gateError(isApi() ? "Enter the code from your email." : "Enter today's access code.");
 
     btn.disabled = true;
     btn.textContent = "Checking…";
 
-    verifyCode(code)
-      .then(function () { return loadQuiz(code); })
-      .then(function () { afterUnlock(email, code); })
+    var done = function () {
+      btn.disabled = false;
+      btn.textContent = "Continue →";
+    };
+
+    (isApi() ? apiGate(email, code) : localGate(email, code))
       .catch(function (err) {
-        btn.disabled = false;
-        btn.textContent = "Continue →";
-        gateError(err && err.message === "code"
-          ? "That access code is not correct for today."
-          : "Could not load today's questions. Tell your tutor the paper has not been published yet.");
-      });
+        gateError(err && err.friendly ? err.message : "Could not start the test. Try again in a moment.");
+      })
+      .then(done, done);
   });
 
-  function verifyCode(code) {
+  function friendly(msg) {
+    var e = new Error(msg);
+    e.friendly = true;
+    return e;
+  }
+
+  /* --- API mode: the server owns access and the clock --- */
+  function apiGate(email, code) {
+    return callApi("start", { email: email, code: code }).then(function (res) {
+      if (!res.ok) {
+        if (res.error === "done") {
+          server = { day: res.day };
+          return showLockedFromServer(res.result, email);
+        }
+        throw friendly(apiMessage(res));
+      }
+
+      server = res;
+      server.email = email;
+      server.code = code;
+
+      if (res.resume) return beginAttempt(email, code, true);
+
+      $("briefDay").textContent = "● Day " + res.day;
+      $("briefTitle").textContent = res.title || "Today's practice test";
+      $("statQ").textContent = res.questionCount || "—";
+      $("statT").textContent = res.durationMinutes + " min";
+      show("brief");
+    });
+  }
+
+  function showLockedFromServer(result, email) {
+    var when = result && result.submittedAt ? new Date(result.submittedAt).toLocaleString() : null;
+    $("lockedLine").textContent =
+      "This email has already used its code" + (when ? " on " + when : "") + "." +
+      (result && result.total
+        ? " You scored " + result.correct + " of " + result.total + " (" + result.percent + "%)."
+        : "") +
+      " Each code works once.";
+
+    // The paper only exists locally if they sat it in this browser.
+    var prior = loadSession(email);
+    $("viewResultBtn").style.display = prior && prior.finished ? "" : "none";
+    if (prior && prior.finished) session = prior;
+    show("locked");
+  }
+
+  /* --- Local mode: whitelist + shared code, lock in localStorage --- */
+  function localGate(email, code) {
+    var allowed = (access.allowedEmails || []).map(normalizeEmail);
+    if (allowed.indexOf(email) === -1) {
+      return Promise.reject(friendly("This email has not been given access. Ask to be added, then try again."));
+    }
+    return verifyLocalCode(code)
+      .then(function () { return loadQuiz(code.trim().toUpperCase()); })
+      .then(function () {
+        var prior = loadSession(email);
+
+        if (prior && prior.finished) {
+          session = prior;
+          $("lockedLine").textContent =
+            "You sat " + (quiz.meta.title || "this test") + " on " +
+            new Date(prior.finishedAt).toLocaleString() + ". Each email gets one attempt.";
+          $("viewResultBtn").style.display = "";
+          return show("locked");
+        }
+
+        if (prior && prior.startedAt) {
+          session = prior;
+          if (remaining() <= 0) return finish(true);
+          show("test");
+          startClock();
+          return renderQuestion();
+        }
+
+        newSession(email, code, null);
+        $("briefDay").textContent = "● Day " + (quiz.meta.day || 1);
+        $("briefTitle").textContent = quiz.meta.title || "Today's practice test";
+        $("statQ").textContent = quiz.questions.length;
+        $("statT").textContent = (quiz.meta.durationMinutes || 15) + " min";
+        show("brief");
+      });
+  }
+
+  function verifyLocalCode(code) {
     if (access.dayCodeHash) {
       return sha256Hex(code.trim().toUpperCase()).then(function (h) {
-        if (h !== access.dayCodeHash.toLowerCase()) throw new Error("code");
+        if (h !== access.dayCodeHash.toLowerCase()) throw friendly("That access code is not correct for today.");
       });
     }
-    if (access.dayCode) {
-      if (code.trim().toUpperCase() !== String(access.dayCode).trim().toUpperCase()) {
-        return Promise.reject(new Error("code"));
-      }
+    if (access.dayCode &&
+        code.trim().toUpperCase() !== String(access.dayCode).trim().toUpperCase()) {
+      return Promise.reject(friendly("That access code is not correct for today."));
     }
     return Promise.resolve();
   }
 
-  function loadQuiz(code) {
+  function loadQuiz(paperKey) {
     return fetch(QUESTIONS_URL, { cache: "no-store" })
-      .then(function (r) { if (!r.ok) throw new Error("paper"); return r.json(); })
+      .then(function (r) { if (!r.ok) throw friendly("Today's paper has not been published yet."); return r.json(); })
       .then(function (json) {
         if (json && json.enc === "aes-gcm") {
-          return decryptPayload(json, code.trim().toUpperCase())
-            .catch(function () { throw new Error("code"); });
+          if (!paperKey) throw friendly("Today's paper is locked and no key was supplied.");
+          return decryptPayload(json, paperKey).catch(function () {
+            throw friendly("Today's paper could not be unlocked. Tell your tutor the key does not match the file.");
+          });
         }
         return json;
       })
       .then(function (json) {
-        if (!json || !json.questions || !json.questions.length) throw new Error("paper");
+        if (!json || !json.questions || !json.questions.length) {
+          throw friendly("Today's paper has not been published yet.");
+        }
         quiz = json;
         quiz.meta = quiz.meta || {};
       });
   }
 
-  function afterUnlock(email, code) {
-    var prior = loadSession(email);
-
-    if (prior && prior.finished) {
-      session = prior;
-      $("lockedLine").textContent =
-        "You sat " + (quiz.meta.title || "this test") + " on " +
-        new Date(prior.finishedAt).toLocaleString() + ". Each email gets one attempt.";
-      return show("locked");
-    }
-
-    if (prior && prior.startedAt) {
-      session = prior;
-      session.code = code;
-      if (remaining() <= 0) return finish(true);
-      show("test");
-      startClock();
-      return renderQuestion();
-    }
-
-    // fresh attempt
-    var order = shuffle(quiz.questions.map(function (q) { return q.id; }));
+  function newSession(email, code, deadline) {
+    var order = shuffle(quiz ? quiz.questions.map(function (q) { return q.id; }) : []);
     var opts = {};
-    quiz.questions.forEach(function (q) {
-      opts[q.id] = shuffle(q.options.map(function (o) { return o.id; }));
-    });
-
+    if (quiz) {
+      quiz.questions.forEach(function (q) {
+        opts[q.id] = shuffle(q.options.map(function (o) { return o.id; }));
+      });
+    }
     session = {
       email: email, code: code,
-      day: quiz.meta.day || null,
+      day: (server && server.day) || (quiz && quiz.meta.day) || null,
       order: order, opts: opts,
       idx: 0, answers: {},
-      startedAt: null, deadline: null,
+      startedAt: null, deadline: deadline,
       finished: false, finishedAt: null,
       blurs: 0
     };
-
-    $("briefDay").textContent = "● Day " + (quiz.meta.day || 1);
-    $("briefTitle").textContent = quiz.meta.title || "Today's practice test";
-    $("statQ").textContent = quiz.questions.length;
-    $("statT").textContent = (quiz.meta.durationMinutes || 15) + " min";
-    show("brief");
   }
 
-  /* ---------- test ---------- */
+  /* ---------- begin ---------- */
   $("beginBtn").addEventListener("click", function () {
+    var btn = this;
+    if (isApi()) {
+      btn.disabled = true;
+      btn.textContent = "Starting…";
+      beginAttempt(server.email, server.code, false).catch(function (err) {
+        show("gate");
+        gateError(err && err.friendly ? err.message : "Could not start the test. Try again.");
+      }).then(function () {
+        btn.disabled = false;
+        btn.textContent = "Begin test";
+      });
+      return;
+    }
+
     var mins = quiz.meta.durationMinutes || 15;
     session.startedAt = Date.now();
     session.deadline = session.startedAt + mins * 60000;
     saveSession();
-    $("qTotal").textContent = quiz.questions.length;
     show("test");
     startClock();
     renderQuestion();
   });
 
+  /* Consumes the code server-side, then unlocks and loads the paper. */
+  function beginAttempt(email, code, resuming) {
+    return callApi("begin", { email: email, code: code })
+      .then(function (res) {
+        if (!res.ok) {
+          if (res.error === "done") return showLockedFromServer(res.result, email);
+          throw friendly(apiMessage(res));
+        }
+        // Trust the server's clock, not the device's, but keep it as an offset
+        // so a wrong system time on the student's laptop cannot buy them time.
+        var skew = res.serverNow ? Date.now() - res.serverNow : 0;
+        var deadline = res.endsAt + skew;
+
+        return loadQuiz(res.paperKey).then(function () {
+          var prior = loadSession(email);
+          if (resuming && prior && prior.order && prior.order.length) {
+            session = prior;
+          } else if (!prior || !prior.order || !prior.order.length) {
+            newSession(email, code, deadline);
+          } else {
+            session = prior;
+          }
+          session.deadline = deadline;
+          session.startedAt = session.startedAt || Date.now();
+          session.code = code;
+          saveSession();
+
+          if (remaining() <= 0) return finish(true);
+          show("test");
+          startClock();
+          renderQuestion();
+        });
+      });
+  }
+
+  /* ---------- test ---------- */
   function remaining() {
     return (session.deadline - Date.now()) / 1000;
   }
@@ -341,14 +540,19 @@
       b.addEventListener("click", function () { answer(q, optId); });
       wrap.appendChild(b);
     });
+
+    // Resuming into a question already answered? Re-show its feedback.
+    if (session.answers[q.id]) replay(q, session.answers[q.id]);
   }
 
   function answer(q, chosenId) {
     if (session.answers[q.id]) return;
-
     session.answers[q.id] = chosenId;
     saveSession();
+    replay(q, chosenId);
+  }
 
+  function replay(q, chosenId) {
     var correctId = q.answer;
     var right = chosenId === correctId;
     var buttons = $("options").querySelectorAll(".opt");
@@ -393,7 +597,6 @@
     $("feedbackNotes").innerHTML = html;
     $("feedback").classList.add("show");
     $("nextBtn").style.display = "";
-    $("nextBtn").focus({ preventScroll: true });
   }
 
   $("nextBtn").addEventListener("click", function () {
@@ -449,7 +652,8 @@
   function renderResult() {
     var s = scoreOf();
     var pct = s.total ? Math.round(s.correct / s.total * 100) : 0;
-    var pass = pct >= (quiz.meta.passMark != null ? quiz.meta.passMark : 50);
+    var passMark = quiz.meta.passMark != null ? quiz.meta.passMark : 50;
+    var pass = pct >= passMark;
 
     $("scorePct").textContent = pct + "%";
     var circ = 2 * Math.PI * 52;
@@ -468,7 +672,7 @@
 
     $("resultSummary").textContent =
       "You got " + s.correct + " of " + s.total + " right on " +
-      (quiz.meta.title || "today's paper") + ". " +
+      ((server && server.title) || quiz.meta.title || "today's paper") + ". " +
       (pass ? "That is above the pass mark." : "That is below the pass mark — go through every explanation below.") +
       (session.timedOut ? " The clock ran out before you finished." : "");
 
@@ -476,7 +680,6 @@
     $("rWrong").textContent = s.total - s.correct;
     $("rTime").textContent = fmt(session.secondsUsed || 0);
 
-    // subject breakdown
     var bd = $("breakdown");
     var names = Object.keys(s.bySubject);
     bd.innerHTML = names.length > 1
@@ -489,7 +692,6 @@
         }).join("")
       : "";
 
-    // full review, in the order the student saw them
     $("review").innerHTML = session.order.map(function (qid, i) {
       var q = quiz.questions.filter(function (x) { return x.id === qid; })[0];
       var chosenId = session.answers[qid];
@@ -498,8 +700,8 @@
       var ok = chosenId === q.answer;
 
       return '<details class="rev' + (ok ? "" : " miss") + '">' +
-        "<summary><span class=\"n\">" + (i + 1) + ".</span>" +
-        "<span class=\"t\">" + esc(q.text) + "</span>" +
+        '<summary><span class="n">' + (i + 1) + ".</span>" +
+        '<span class="t">' + esc(q.text) + "</span>" +
         "<span>" + (ok ? "✓" : "✕") + "</span></summary>" +
         '<div class="inner">' +
           "<p><b>Your answer:</b> " + esc(chosen ? chosen.text : "— not answered —") + "</p>" +
@@ -516,12 +718,14 @@
     show("result");
   }
 
-  $("viewResultBtn").addEventListener("click", renderResult);
+  $("viewResultBtn").addEventListener("click", function () {
+    if (session && session.finished && quiz) renderResult();
+  });
 
   $("copyBtn").addEventListener("click", function () {
     var s = scoreOf();
     var text =
-      (quiz.meta.title || "CBT") + "\n" +
+      ((server && server.title) || quiz.meta.title || "CBT") + "\n" +
       session.email + "\n" +
       "Score: " + s.correct + "/" + s.total +
       " (" + Math.round(s.correct / s.total * 100) + "%)\n" +
@@ -535,15 +739,13 @@
 
   $("printBtn").addEventListener("click", function () { window.print(); });
 
-  /* Optional central log: point resultsEndpoint at a Google Apps Script web app. */
   function submitRemote() {
-    var url = access && access.resultsEndpoint;
-    if (!url) return;
     var s = scoreOf();
     var body = {
       email: session.email,
-      day: quiz.meta.day || null,
-      title: quiz.meta.title || "",
+      code: session.code,
+      day: (server && server.day) || quiz.meta.day || null,
+      title: (server && server.title) || quiz.meta.title || "",
       correct: s.correct,
       total: s.total,
       percent: s.total ? Math.round(s.correct / s.total * 100) : 0,
@@ -552,6 +754,16 @@
       tabSwitches: session.blurs || 0,
       submittedAt: new Date(session.finishedAt).toISOString()
     };
+
+    if (isApi()) {
+      callApi("submit", body).catch(function () {
+        toast("Your score could not be sent up. Screenshot this page for your tutor.");
+      });
+      return;
+    }
+
+    var url = access && access.resultsEndpoint;
+    if (!url) return;
     try {
       fetch(url, {
         method: "POST",

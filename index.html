@@ -37,13 +37,20 @@
         <div class="field">
           <label for="email">Your Gmail address</label>
           <input id="email" type="email" inputmode="email" placeholder="yourname@gmail.com" autocomplete="email" required>
-          <p class="hint">Must be the exact address that was given access.</p>
+          <p class="hint" id="emailHint">Must be the exact address that was given access.</p>
+        </div>
+
+        <div id="requestRow" style="display:none">
+          <button class="btn ghost block" id="requestBtn" type="button" style="margin-top:0.85rem">
+            Email me my access code
+          </button>
+          <div class="alert good" id="requestNote" role="status"></div>
         </div>
 
         <div class="field">
-          <label for="code">Today's access code</label>
-          <input id="code" class="code" type="text" placeholder="OAU-DAY1" autocapitalize="characters" required>
-          <p class="hint">Sent out at the start of each day's session.</p>
+          <label for="code">Your access code</label>
+          <input id="code" class="code" type="text" placeholder="XXXXXX" autocapitalize="characters" autocomplete="one-time-code" required>
+          <p class="hint" id="codeHint">Sent out at the start of each day's session.</p>
         </div>
 
         <div class="alert" id="gateError" role="alert"></div>
