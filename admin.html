@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QuickCBT — Tutor tools</title>
+<meta name="robots" content="noindex">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛠️</text></svg>">
+</head>
+<body>
+<div class="aurora"></div>
+
+<main class="shell">
+  <header class="topbar">
+    <div class="logo"><span class="mark">Q</span><span>Tutor tools</span></div>
+    <span class="spacer"></span>
+    <a class="icon-btn" href="index.html" title="Back to the test" style="text-decoration:none">←</a>
+  </header>
+
+  <section class="card">
+    <span class="eyebrow">● Runs entirely in your browser</span>
+    <h1>Publish <span class="gradient-text">today's paper</span></h1>
+    <p class="lede">Paste the day's questions, set a code, and this checks the paper and (optionally) encrypts it so the answers are not readable in your public repo. Nothing is uploaded anywhere.</p>
+
+    <div class="field">
+      <label for="code">Today's access code</label>
+      <input id="code" class="code" type="text" placeholder="OAU-DAY1">
+      <p class="hint">Give this to the students on the morning of the test. It is also the encryption key.</p>
+    </div>
+
+    <div class="field">
+      <label for="src">Paste the day's questions JSON</label>
+      <textarea id="src" class="box" spellcheck="false" placeholder='{ "meta": { ... }, "questions": [ ... ] }'></textarea>
+    </div>
+
+    <div class="row">
+      <button class="btn ghost" id="checkBtn" type="button">Check the paper</button>
+      <button class="btn ghost" id="hashBtn" type="button">Hash the code</button>
+      <button class="btn" id="encBtn" type="button">Encrypt &amp; download questions.json</button>
+    </div>
+
+    <div class="field">
+      <label for="out">Output</label>
+      <textarea id="out" class="box" spellcheck="false" readonly placeholder="Results show up here."></textarea>
+    </div>
+  </section>
+
+  <section class="card" style="margin-top:1.2rem">
+    <h2>Daily checklist</h2>
+    <ul class="rules">
+      <li><span class="dot">1</span><span>Copy tomorrow's questions out of <b>question-bank/</b> into the box above.</span></li>
+      <li><span class="dot">2</span><span>Press <b>Check the paper</b> and fix anything it flags.</span></li>
+      <li><span class="dot">3</span><span>Press <b>Encrypt &amp; download</b>, then replace <b>data/questions.json</b> with the downloaded file.</span></li>
+      <li><span class="dot">4</span><span>Press <b>Hash the code</b> and paste the hash into <b>data/access.json</b> as <b>dayCodeHash</b>, clearing <b>dayCode</b>.</span></li>
+      <li><span class="dot">5</span><span>Commit, push, then send the code to the students.</span></li>
+    </ul>
+  </section>
+
+  <p class="foot">Keep this page out of the students' hands — it is only a convenience, not a secret.</p>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function () {
+  "use strict";
+  var $ = function (id) { return document.getElementById(id); };
+  var out = $("out");
+
+  var toastTimer;
+  function toast(m) {
+    var t = $("toast");
+    t.textContent = m; t.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { t.classList.remove("show"); }, 2600);
+  }
+
+  function code() { return $("code").value.trim().toUpperCase(); }
+
+  function parseSrc() {
+    var raw = $("src").value.trim();
+    if (!raw) { out.value = "Paste the questions JSON first."; return null; }
+    try { return JSON.parse(raw); }
+    catch (e) { out.value = "This is not valid JSON.\n\n" + e.message; return null; }
+  }
+
+  function validate(paper) {
+    var problems = [], ids = {};
+    if (!paper.meta) problems.push('Missing "meta" block.');
+    if (!paper.questions || !paper.questions.length) {
+      problems.push('Missing or empty "questions" array.');
+      return problems;
+    }
+    if (paper.meta && !paper.meta.durationMinutes) {
+      problems.push('meta.durationMinutes is not set — the app will default to 15 minutes.');
+    }
+    paper.questions.forEach(function (q, i) {
+      var at = "Question " + (i + 1) + ": ";
+      if (!q.id) problems.push(at + 'no "id".');
+      else if (ids[q.id]) problems.push(at + 'duplicate id "' + q.id + '".');
+      else ids[q.id] = true;
+      if (!q.text) problems.push(at + "no question text.");
+      if (!q.options || q.options.length < 2) { problems.push(at + "fewer than 2 options."); return; }
+      var optIds = q.options.map(function (o) { return o.id; });
+      q.options.forEach(function (o, j) {
+        if (!o.id) problems.push(at + "option " + (j + 1) + ' has no "id".');
+        if (!o.text) problems.push(at + "option " + (o.id || j + 1) + " has no text.");
+        if (o.id !== q.answer && !o.feedback) {
+          problems.push(at + "option " + (o.id || j + 1) + " has no tailored feedback — the student will get a generic line.");
+        }
+      });
+      if (!q.answer) problems.push(at + 'no "answer".');
+      else if (optIds.indexOf(q.answer) === -1) problems.push(at + 'answer "' + q.answer + '" is not one of the option ids.');
+      if (!q.explanation) problems.push(at + "no explanation for the correct answer.");
+    });
+    return problems;
+  }
+
+  $("checkBtn").addEventListener("click", function () {
+    var paper = parseSrc();
+    if (!paper) return;
+    var problems = validate(paper);
+    var subjects = {};
+    (paper.questions || []).forEach(function (q) {
+      var s = q.subject || "General";
+      subjects[s] = (subjects[s] || 0) + 1;
+    });
+    var summary =
+      "Questions: " + (paper.questions || []).length + "\n" +
+      "Duration:  " + ((paper.meta && paper.meta.durationMinutes) || 15) + " min\n" +
+      "Subjects:  " + Object.keys(subjects).map(function (s) { return s + " (" + subjects[s] + ")"; }).join(", ") + "\n\n";
+    out.value = summary + (problems.length
+      ? problems.length + " thing(s) to look at:\n\n- " + problems.join("\n- ")
+      : "No problems found. This paper is ready to publish.");
+  });
+
+  $("hashBtn").addEventListener("click", function () {
+    if (!code()) { out.value = "Enter the access code first."; return; }
+    crypto.subtle.digest("SHA-256", new TextEncoder().encode(code())).then(function (buf) {
+      var hex = "", v = new Uint8Array(buf);
+      for (var i = 0; i < v.length; i++) hex += v[i].toString(16).padStart(2, "0");
+      out.value =
+        'Paste this into data/access.json:\n\n' +
+        '  "dayCode": "",\n' +
+        '  "dayCodeHash": "' + hex + '",\n\n' +
+        'Then the plain code (' + code() + ') never appears in the repo.';
+      toast("Hash ready");
+    });
+  });
+
+  function b64(buf) {
+    var bin = "", v = new Uint8Array(buf);
+    for (var i = 0; i < v.length; i++) bin += String.fromCharCode(v[i]);
+    return btoa(bin);
+  }
+
+  $("encBtn").addEventListener("click", function () {
+    var paper = parseSrc();
+    if (!paper) return;
+    if (!code()) { out.value = "Enter the access code first — it is the encryption key."; return; }
+
+    var problems = validate(paper);
+    var blockers = problems.filter(function (p) { return p.indexOf("tailored feedback") === -1; });
+    if (blockers.length) {
+      out.value = "Fix these before publishing:\n\n- " + blockers.join("\n- ");
+      return;
+    }
+
+    var salt = crypto.getRandomValues(new Uint8Array(16));
+    var iv = crypto.getRandomValues(new Uint8Array(12));
+    var enc = new TextEncoder();
+
+    crypto.subtle.importKey("raw", enc.encode(code()), "PBKDF2", false, ["deriveKey"])
+      .then(function (base) {
+        return crypto.subtle.deriveKey(
+          { name: "PBKDF2", salt: salt, iterations: 120000, hash: "SHA-256" },
+          base, { name: "AES-GCM", length: 256 }, false, ["encrypt"]
+        );
+      })
+      .then(function (key) {
+        return crypto.subtle.encrypt({ name: "AES-GCM", iv: iv }, key, enc.encode(JSON.stringify(paper)));
+      })
+      .then(function (cipher) {
+        var payload = {
+          v: 1, enc: "aes-gcm",
+          salt: b64(salt), iv: b64(iv), data: b64(cipher)
+        };
+        var blob = new Blob([JSON.stringify(payload)], { type: "application/json" });
+        var a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = "questions.json";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+        out.value =
+          "Encrypted. questions.json has been downloaded — move it into data/ replacing the old one.\n\n" +
+          (problems.length ? "Warnings you chose to ship with:\n- " + problems.join("\n- ") : "");
+        toast("questions.json downloaded");
+      })
+      .catch(function (e) { out.value = "Encryption failed: " + e.message; });
+  });
+})();
+</script>
+</body>
+</html>

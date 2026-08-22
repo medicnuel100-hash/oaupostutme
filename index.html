@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QuickCBT — OAU Post-UTME Prep</title>
+<meta name="description" content="Daily timed CBT practice with instant, per-option explanations.">
+<meta name="theme-color" content="#0a0c16">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎓</text></svg>">
+</head>
+<body>
+<div class="aurora"></div>
+
+<main class="shell">
+
+  <header class="topbar">
+    <div class="logo">
+      <span class="mark">Q</span>
+      <span id="brandName">QuickCBT</span>
+    </div>
+    <span class="spacer"></span>
+    <button class="icon-btn" id="themeBtn" type="button" title="Switch theme" aria-label="Switch theme">◑</button>
+  </header>
+
+  <!-- ============ GATE ============ -->
+  <section class="screen active" id="screen-gate">
+    <div class="card">
+      <span class="eyebrow">● Access required</span>
+      <h1>Sit today's <span class="gradient-text">practice test</span></h1>
+      <p class="lede" id="appSubtitle">Enter the email your tutor whitelisted, plus today's access code.</p>
+
+      <form id="gateForm" autocomplete="off" novalidate>
+        <div class="field">
+          <label for="email">Your Gmail address</label>
+          <input id="email" type="email" inputmode="email" placeholder="yourname@gmail.com" autocomplete="email" required>
+          <p class="hint">Must be the exact address that was given access.</p>
+        </div>
+
+        <div class="field">
+          <label for="code">Today's access code</label>
+          <input id="code" class="code" type="text" placeholder="OAU-DAY1" autocapitalize="characters" required>
+          <p class="hint">Sent out at the start of each day's session.</p>
+        </div>
+
+        <div class="alert" id="gateError" role="alert"></div>
+
+        <button class="btn block" type="submit" id="gateBtn">Continue &rarr;</button>
+      </form>
+    </div>
+    <p class="foot" id="supportLine"></p>
+  </section>
+
+  <!-- ============ BRIEF ============ -->
+  <section class="screen" id="screen-brief">
+    <div class="card">
+      <span class="eyebrow" id="briefDay">● Day 1</span>
+      <h1 id="briefTitle">Test title</h1>
+      <p class="lede">Read the rules once, then begin. The timer starts the moment you press begin.</p>
+
+      <div class="stat-row">
+        <div class="stat"><div class="k">Questions</div><div class="v" id="statQ">—</div></div>
+        <div class="stat"><div class="k">Duration</div><div class="v" id="statT">—</div></div>
+        <div class="stat"><div class="k">Attempts left</div><div class="v">1</div></div>
+      </div>
+
+      <ul class="rules">
+        <li><span class="dot">1</span><span><b>One attempt only.</b> Once you begin, the attempt is tied to your email — there is no reset.</span></li>
+        <li><span class="dot">2</span><span><b>No going back.</b> Each answer is marked instantly and you move forward.</span></li>
+        <li><span class="dot">3</span><span><b>Instant feedback.</b> You see why your option was wrong and why the correct one is right.</span></li>
+        <li><span class="dot">4</span><span><b>The clock does not stop.</b> If it hits zero, the test submits itself with what you have.</span></li>
+        <li><span class="dot">5</span><span><b>Refreshing will not help you.</b> Your progress and remaining time are saved and restored.</span></li>
+      </ul>
+
+      <button class="btn block" id="beginBtn" type="button">Begin test</button>
+    </div>
+  </section>
+
+  <!-- ============ TEST ============ -->
+  <section class="screen" id="screen-test">
+    <div class="card">
+      <div class="exam-head">
+        <div class="qcount">Question <span id="qNow">1</span><span> / <span id="qTotal">0</span></span></div>
+        <span class="chip" id="qSubject">Subject</span>
+        <span class="spacer"></span>
+        <div class="timer" id="timer">--:--</div>
+        <div class="progress"><i id="progressBar"></i></div>
+      </div>
+
+      <p class="qtext" id="qText"></p>
+      <div class="options" id="options"></div>
+
+      <div class="feedback" id="feedback">
+        <div class="verdict" id="verdict"></div>
+        <div id="feedbackNotes"></div>
+      </div>
+
+      <div class="exam-foot">
+        <button class="btn" id="nextBtn" type="button" style="display:none">Next question &rarr;</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ RESULT ============ -->
+  <section class="screen" id="screen-result">
+    <div class="card">
+      <span class="eyebrow">● Test complete</span>
+      <div class="score-wrap">
+        <div class="ring">
+          <svg viewBox="0 0 120 120" aria-hidden="true">
+            <defs>
+              <linearGradient id="scoreGrad" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stop-color="#7c5cff"></stop>
+                <stop offset="100%" stop-color="#22d3ee"></stop>
+              </linearGradient>
+            </defs>
+            <circle class="track" cx="60" cy="60" r="52"></circle>
+            <circle class="bar" id="scoreArc" cx="60" cy="60" r="52"
+                    stroke-dasharray="326.7" stroke-dashoffset="326.7"></circle>
+          </svg>
+          <div class="mid">
+            <div class="pct" id="scorePct">0%</div>
+            <div class="lbl">Score</div>
+          </div>
+        </div>
+
+        <div style="flex:1;min-width:230px">
+          <h1 id="resultHeadline">Well done.</h1>
+          <p class="lede" id="resultSummary"></p>
+          <div class="stat-row">
+            <div class="stat"><div class="k">Correct</div><div class="v" id="rCorrect">0</div></div>
+            <div class="stat"><div class="k">Wrong</div><div class="v" id="rWrong">0</div></div>
+            <div class="stat"><div class="k">Time used</div><div class="v" id="rTime">0:00</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="breakdown" id="breakdown"></div>
+
+      <h2 style="margin-top:2.2rem">Full review</h2>
+      <p class="lede" style="font-size:0.9rem">Tap any question to reopen the explanation.</p>
+      <div class="review" id="review"></div>
+
+      <div class="row">
+        <button class="btn" id="copyBtn" type="button">Copy my result</button>
+        <button class="btn ghost" id="printBtn" type="button">Save as PDF</button>
+      </div>
+    </div>
+    <p class="foot" id="resultFoot"></p>
+  </section>
+
+  <!-- ============ LOCKED ============ -->
+  <section class="screen" id="screen-locked">
+    <div class="card center">
+      <div class="big-emoji">🔒</div>
+      <h1>You have already sat this test</h1>
+      <p class="lede" id="lockedLine"></p>
+      <button class="btn ghost" id="viewResultBtn" type="button" style="margin-top:1.5rem">View my result</button>
+    </div>
+  </section>
+
+</main>
+
+<div class="toast" id="toast"></div>
+<script src="assets/js/app.js"></script>
+</body>
+</html>

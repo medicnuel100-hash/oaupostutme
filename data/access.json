@@ -1,0 +1,17 @@
+{
+  "app": {
+    "title": "OAU Post-UTME Prep",
+    "subtitle": "Daily timed practice — Great Ife, here we come.",
+    "supportContact": "medicnuel100@gmail.com"
+  },
+
+  "dayCode": "OAU-DAY1",
+  "dayCodeHash": "",
+
+  "resultsEndpoint": "",
+
+  "allowedEmails": [
+    "medicnuel100@gmail.com",
+    "sample.student@gmail.com"
+  ]
+}

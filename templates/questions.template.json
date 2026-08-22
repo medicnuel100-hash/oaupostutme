@@ -1,0 +1,49 @@
+{
+  "meta": {
+    "day": 1,
+    "title": "Day 1 — English & Use of English",
+    "durationMinutes": 15,
+    "passMark": 50
+  },
+  "questions": [
+    {
+      "id": "d1q1",
+      "subject": "English",
+      "text": "Choose the option that best completes the sentence: The principal, together with the teachers, ______ arrived.",
+      "options": [
+        { "id": "A", "text": "have", "feedback": "\"Have\" agrees with a plural subject, but the subject here is the singular noun \"principal\". The phrase \"together with the teachers\" does not change the number of the subject." },
+        { "id": "B", "text": "has", "feedback": "" },
+        { "id": "C", "text": "were", "feedback": "\"Were\" is both plural and past tense; the sentence needs a present-perfect auxiliary that agrees with a singular subject." },
+        { "id": "D", "text": "are", "feedback": "\"Are\" is plural and cannot pair with the past participle \"arrived\" in this construction." }
+      ],
+      "answer": "B",
+      "explanation": "When a singular subject is followed by an interrupting phrase such as 'together with', 'as well as', 'in addition to' or 'along with', the verb still agrees with the original singular subject. So: The principal ... HAS arrived."
+    },
+    {
+      "id": "d1q2",
+      "subject": "English",
+      "text": "Choose the word that is nearest in meaning to the underlined word: The lecturer gave a LUCID explanation of the concept.",
+      "options": [
+        { "id": "A", "text": "lengthy", "feedback": "Length is not part of the meaning; a lucid explanation can be very short." },
+        { "id": "B", "text": "confusing", "feedback": "This is the opposite of lucid. Lucid means easy to understand." },
+        { "id": "C", "text": "clear", "feedback": "" },
+        { "id": "D", "text": "boring", "feedback": "Lucid says nothing about how interesting the explanation was, only how understandable it was." }
+      ],
+      "answer": "C",
+      "explanation": "'Lucid' means expressed clearly and easy to understand. The closest synonym among the options is 'clear'."
+    },
+    {
+      "id": "d1q3",
+      "subject": "English",
+      "text": "Select the option that has the same vowel sound as the word 'HEART'.",
+      "options": [
+        { "id": "A", "text": "hurt", "feedback": "'Hurt' carries the /ɜː/ sound, the same vowel as in 'bird' — not the long /ɑː/ in 'heart'." },
+        { "id": "B", "text": "part", "feedback": "" },
+        { "id": "C", "text": "hear", "feedback": "'Hear' is a diphthong /ɪə/, as in 'here' or 'near'." },
+        { "id": "D", "text": "heard", "feedback": "'Heard' also takes /ɜː/, which is why it sounds like 'herd' and not like 'heart'." }
+      ],
+      "answer": "B",
+      "explanation": "'Heart' is pronounced /hɑːt/ with the long /ɑː/ vowel. 'Part' /pɑːt/ carries exactly the same vowel sound. Note the spelling trap: 'heart' does not rhyme with 'heard'."
+    }
+  ]
+}

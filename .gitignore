@@ -1,0 +1,17 @@
+# ---- The master question bank never goes to GitHub ----
+# Keep all 7 days here locally. Each morning, copy that day's paper
+# into data/questions.json (via admin.html) and push only that.
+question-bank/
+
+# Local notes / drafts
+drafts/
+*.draft.json
+
+# OS + editor noise
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.swp
+node_modules/
