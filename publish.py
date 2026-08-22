@@ -73,7 +73,7 @@ def load_config():
     return cfg
 
 
-def validate(paper, name):
+def validate(paper):
     """Same checks as admin.html. Returns (errors, warnings)."""
     errors, warnings = [], []
     meta = paper.get("meta") or {}
@@ -181,7 +181,7 @@ def main():
             blocked = True
             continue
 
-        errors, warnings = validate(paper, name)
+        errors, warnings = validate(paper)
         if errors:
             blocked = True
             print(f"{RED}✗ {name}{OFF}")
@@ -252,10 +252,33 @@ def main():
     git("add", "-A")
     git("commit", "-m", f"Publish {len(papers)} paper(s)")
     push = git("push", check=False)
+
+    # A failed push is the one way to end up with the sheet pointing at files
+    # that are not on the site -- students then see "paper not published yet".
+    # Make it impossible to miss.
     if push.returncode != 0:
-        print(f"{YELLOW}! Committed, but the push failed:{OFF}\n{push.stderr.strip()}")
-        print(f"{YELLOW}  Run 'git push' yourself.{OFF}")
-        return
+        print()
+        print(f"{RED}{'=' * 66}{OFF}")
+        print(f"{RED}  PUSH FAILED — THE PAPERS ARE NOT LIVE{OFF}")
+        print(f"{RED}{'=' * 66}{OFF}")
+        print(f"{RED}  Encrypted and committed locally, but nothing reached GitHub,{OFF}")
+        print(f"{RED}  so the site cannot serve them. The sheet already points at{OFF}")
+        print(f"{RED}  these files, so students will see 'paper not published yet'.{OFF}")
+        print()
+        print(f"{RED}  Fix it by running:   git push{OFF}")
+        print(f"{RED}  (a sign-in window may be waiting on your screen){OFF}")
+        print()
+        if push.stderr.strip():
+            for line in push.stderr.strip().splitlines()[:6]:
+                print(f"{DIM}  {line}{OFF}")
+        print(f"{RED}{'=' * 66}{OFF}")
+        sys.exit(1)
+
+    # Trust nothing: confirm the branch really is level with the remote.
+    behind = git("rev-list", "--count", "origin/main..HEAD", check=False).stdout.strip()
+    if behind and behind != "0":
+        print(f"{RED}✗ Push reported success but {behind} commit(s) are still unpushed. Run: git push{OFF}")
+        sys.exit(1)
 
     print(f"{GREEN}✓{OFF} Pushed. The site will redeploy in a moment.")
     print(f"\n{DIM}Keys live only in the sheet. data/*.json is unreadable without them.{OFF}")
