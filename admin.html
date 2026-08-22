@@ -209,15 +209,25 @@
         var blob = new Blob([JSON.stringify(payload)], { type: "application/json" });
         var a = document.createElement("a");
         a.href = URL.createObjectURL(blob);
-        a.download = "questions.json";
+        var day = (paper.meta && paper.meta.day) || 1;
+        a.download = "day" + day + ".json";
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
         setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
         out.value =
-          "Encrypted. questions.json has been downloaded — move it into data/ replacing the old one.\n\n" +
+          "Encrypted. day" + day + ".json downloaded — move it into data/day" + day + ".json\n\n" +
+          "Now put this row in the Papers tab of your sheet (row " + (day + 1) + "):\n\n" +
+          "  day               " + day + "\n" +
+          "  title             " + (paper.meta.title || "Day " + day) + "\n" +
+          "  questionCount     " + paper.questions.length + "\n" +
+          "  durationMinutes   " + (paper.meta.durationMinutes || 15) + "\n" +
+          "  file              data/day" + day + ".json\n" +
+          "  key               " + code() + "\n\n" +
+          "That key never goes in the repo. The server only releases it once a\n" +
+          "day-" + day + " code has been used, and only while the sheet says day = " + day + ".\n\n" +
           (problems.length ? "Warnings you chose to ship with:\n- " + problems.join("\n- ") : "");
-        toast("questions.json downloaded");
+        toast("day" + day + ".json downloaded");
       })
       .catch(function (e) { out.value = "Encryption failed: " + e.message; });
   });

@@ -21,6 +21,7 @@
 
 var TAB_ATTEMPTS = 'Attempts';
 var TAB_SETTINGS = 'Settings';
+var TAB_PAPERS = 'Papers';
 
 /* One row per student per day. Column numbers are 1-based. */
 var COL = {
@@ -74,6 +75,19 @@ function setup() {
     set.setColumnWidth(2, 380);
   }
 
+  var pap = book.getSheetByName(TAB_PAPERS) || book.insertSheet(TAB_PAPERS);
+  if (pap.getLastRow() === 0) {
+    pap.appendRow(['day', 'title', 'questionCount', 'durationMinutes', 'file', 'key']);
+    for (var d = 1; d <= 7; d++) {
+      pap.appendRow([d, 'Day ' + d, 40, 30, 'data/day' + d + '.json', '']);
+    }
+    pap.getRange(1, 1, 1, 6).setFontWeight('bold').setBackground('#efeaff');
+    pap.setFrozenRows(1);
+    pap.setColumnWidth(2, 260);
+    pap.setColumnWidth(5, 180);
+    pap.setColumnWidth(6, 300);
+  }
+
   book.toast('QuickCBT is set up. Now deploy this as a Web app.', 'Ready', 8);
 }
 
@@ -118,7 +132,7 @@ function nextDay() {
   var cfg = settings();
   var next = (Number(cfg.day) || 1) + 1;
   setSetting('day', next);
-  ss().toast('Now on day ' + next + '. Update title, questionCount and paperKey, then publish the paper.', 'QuickCBT', 10);
+  ss().toast('Now on day ' + next + '. Row ' + next + ' of the Papers tab is now live.', 'QuickCBT', 10);
 }
 
 function showQuota() {
@@ -149,6 +163,37 @@ function setSetting(key, value) {
     }
   }
   sheet.appendRow([key, value]);
+}
+
+/**
+ * The paper for one day. begin() only ever calls this with the CURRENT day, so
+ * a key for any other day is unreachable no matter what a client sends.
+ */
+function paperFor(day) {
+  var cfg = settings();
+  var fallback = {
+    title: String(cfg.title || ''),
+    questionCount: Number(cfg.questionCount) || 0,
+    durationMinutes: Number(cfg.durationMinutes) || 15,
+    file: 'data/questions.json',
+    key: String(cfg.paperKey || '')
+  };
+  var sheet = ss().getSheetByName(TAB_PAPERS);
+  if (!sheet || sheet.getLastRow() < 2) return fallback;
+
+  var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, 6).getValues();
+  for (var i = 0; i < rows.length; i++) {
+    if (String(rows[i][0]).trim() === String(day)) {
+      return {
+        title: String(rows[i][1] || fallback.title),
+        questionCount: Number(rows[i][2]) || fallback.questionCount,
+        durationMinutes: Number(rows[i][3]) || fallback.durationMinutes,
+        file: String(rows[i][4] || fallback.file).trim(),
+        key: String(rows[i][5] || '')
+      };
+    }
+  }
+  return fallback;
 }
 
 function isTrue(v) { return String(v).trim().toUpperCase() === 'TRUE'; }
@@ -232,7 +277,7 @@ function millis(v) {
 
 function sendCodeEmail(email, code, cfg) {
   var site = String(cfg.siteUrl || '');
-  var title = String(cfg.title || 'Today\'s practice test');
+  var title = String(paperFor(cfg.day).title || 'Today\'s practice test');
   var html =
     '<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:520px;margin:0 auto;padding:28px 24px;color:#131728">' +
       '<div style="font-size:13px;letter-spacing:.12em;text-transform:uppercase;color:#7c5cff;font-weight:700">' +
@@ -312,15 +357,17 @@ function handle(req) {
 
 function ping() {
   var cfg = settings();
+  var paper = paperFor(cfg.day);
   return {
     ok: true,
     day: cfg.day,
-    title: cfg.title,
-    durationMinutes: Number(cfg.durationMinutes) || 15,
-    questionCount: Number(cfg.questionCount) || 0,
+    title: paper.title,
+    durationMinutes: paper.durationMinutes,
+    questionCount: paper.questionCount,
+    paperFile: paper.file,
+    paperEncrypted: !!paper.key,
     autoApprove: isTrue(cfg.autoApprove),
     requestsOpen: isTrue(cfg.requestsOpen),
-    paperEncrypted: !!String(cfg.paperKey || ''),
     mailQuotaLeft: MailApp.getRemainingDailyQuota()
   };
 }
@@ -380,12 +427,13 @@ function startCheck(req) {
   if (status === 'pending') return { ok: false, error: 'pending' };
   if (status === 'done')    return { ok: false, error: 'done', result: resultOf(found) };
 
+  var paper = paperFor(day);
   var info = {
     ok: true,
     day: day,
-    title: String(cfg.title || ''),
-    durationMinutes: Number(cfg.durationMinutes) || 15,
-    questionCount: Number(cfg.questionCount) || 0,
+    title: paper.title,
+    durationMinutes: paper.durationMinutes,
+    questionCount: paper.questionCount,
     resume: false
   };
 
@@ -424,7 +472,7 @@ function begin(req) {
       endsAt = millis(found.values[COL.endsAt - 1]);
       if (Date.now() >= endsAt) return { ok: false, error: 'expired' };
     } else {
-      var minutes = Number(cfg.durationMinutes) || 15;
+      var minutes = paperFor(day).durationMinutes;
       var now = new Date();
       endsAt = now.getTime() + minutes * 60000;
       sheet.getRange(found.row, COL.status).setValue('started');
@@ -432,11 +480,15 @@ function begin(req) {
       sheet.getRange(found.row, COL.endsAt).setValue(new Date(endsAt));
     }
 
+    // paperFor(day) is called with the CURRENT day and nothing else, so no
+    // request can ever draw out another day's file name or key.
+    var active = paperFor(day);
     return {
       ok: true,
       endsAt: endsAt,
       serverNow: Date.now(),
-      paperKey: String(cfg.paperKey || '')
+      paperFile: active.file,
+      paperKey: active.key
     };
   } finally {
     lock.releaseLock();

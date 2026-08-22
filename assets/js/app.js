@@ -338,7 +338,7 @@
       return Promise.reject(friendly("This email has not been given access. Ask to be added, then try again."));
     }
     return verifyLocalCode(code)
-      .then(function () { return loadQuiz(code.trim().toUpperCase()); })
+      .then(function () { return loadQuiz(code.trim().toUpperCase(), null); })
       .then(function () {
         var prior = loadSession(email);
 
@@ -381,8 +381,8 @@
     return Promise.resolve();
   }
 
-  function loadQuiz(paperKey) {
-    return fetch(QUESTIONS_URL, { cache: "no-store" })
+  function loadQuiz(paperKey, paperFile) {
+    return fetch(paperFile || QUESTIONS_URL, { cache: "no-store" })
       .then(function (r) { if (!r.ok) throw friendly("Today's paper has not been published yet."); return r.json(); })
       .then(function (json) {
         if (json && json.enc === "aes-gcm") {
@@ -425,6 +425,7 @@
   $("beginBtn").addEventListener("click", function () {
     var btn = this;
     if (isApi()) {
+      if (!server) return gateError("Your session expired. Enter your code again.") || show("gate");
       btn.disabled = true;
       btn.textContent = "Starting…";
       beginAttempt(server.email, server.code, false).catch(function (err) {
@@ -459,7 +460,7 @@
         var skew = res.serverNow ? Date.now() - res.serverNow : 0;
         var deadline = res.endsAt + skew;
 
-        return loadQuiz(res.paperKey).then(function () {
+        return loadQuiz(res.paperKey, res.paperFile).then(function () {
           var prior = loadSession(email);
           if (resuming && prior && prior.order && prior.order.length) {
             session = prior;
