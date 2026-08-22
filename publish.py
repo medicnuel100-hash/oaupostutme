@@ -19,7 +19,7 @@ not touch anything on the morning of a test.
 First run only: create .quickcbt.json next to this script (it is git-ignored):
 
     {
-      "apiUrl":     "https://script.google.com/macros/s/..../exec",
+      "apiUrl":     "https://script.google.com/macros/s/AKfycbxn8Q8a-s_UZY-N5raHzZuNuoYcBfuqSDBS7Qx_HISxWS0LNl36MpUbXGJ9mLqH5KRn/exec",
       "adminToken": "<the adminToken value from the Settings tab of your sheet>"
     }
 """

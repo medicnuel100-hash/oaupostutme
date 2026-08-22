@@ -58,24 +58,22 @@ function setup() {
   var set = book.getSheetByName(TAB_SETTINGS) || book.insertSheet(TAB_SETTINGS);
   if (set.getLastRow() === 0) {
     set.appendRow(['key', 'value']);
-    [
-      ['day', 1],
-      ['title', 'Day 1 — English & Use of English'],
-      ['durationMinutes', 15],
-      ['questionCount', 3],
-      ['paperKey', ''],
-      ['autoApprove', 'TRUE'],
-      ['requestsOpen', 'TRUE'],
-      ['fromName', 'OAU Post-UTME Prep'],
-      ['siteUrl', ''],
-      ['timezone', 'Africa/Lagos'],
-      ['adminToken', Utilities.getUuid().replace(/-/g, '').slice(0, 24)]
-    ].forEach(function (r) { set.appendRow(r); });
     set.getRange(1, 1, 1, 2).setFontWeight('bold').setBackground('#efeaff');
     set.setFrozenRows(1);
     set.setColumnWidth(1, 160);
     set.setColumnWidth(2, 380);
   }
+
+  // Top up anything missing rather than only filling a blank tab, so re-running
+  // setup() after an upgrade actually adds the new keys instead of skipping.
+  var have = settings();
+  var added = [];
+  defaultSettings().forEach(function (r) {
+    if (!(r[0] in have)) {
+      set.appendRow(r);
+      added.push(r[0]);
+    }
+  });
 
   var pap = book.getSheetByName(TAB_PAPERS) || book.insertSheet(TAB_PAPERS);
   if (pap.getLastRow() === 0) {
@@ -91,7 +89,47 @@ function setup() {
     pap.setColumnWidth(7, 300);
   }
 
-  book.toast('QuickCBT is set up. Now deploy this as a Web app.', 'Ready', 8);
+  book.toast(
+    added.length
+      ? 'Added settings: ' + added.join(', ') + '. Use QuickCBT > Show admin token.'
+      : 'QuickCBT is set up. Now deploy this as a Web app.',
+    'Ready', 10);
+}
+
+function newToken() {
+  return Utilities.getUuid().replace(/-/g, '').slice(0, 24);
+}
+
+function defaultSettings() {
+  return [
+    ['day', 1],
+    ['title', 'Day 1'],
+    ['durationMinutes', 15],
+    ['questionCount', 0],
+    ['paperKey', ''],
+    ['autoApprove', 'TRUE'],
+    ['requestsOpen', 'TRUE'],
+    ['fromName', 'OAU Post-UTME Prep'],
+    ['siteUrl', ''],
+    ['timezone', 'Africa/Lagos'],
+    ['adminToken', newToken()]
+  ];
+}
+
+/** Shows the token publish.py needs, creating one if it is missing. */
+function showAdminToken() {
+  var token = String(settings().adminToken || '');
+  if (!token) {
+    token = newToken();
+    setSetting('adminToken', token);
+  }
+  SpreadsheetApp.getUi().alert(
+    'Admin token',
+    token +
+    '\n\nPaste this into .quickcbt.json next to publish.py.' +
+    '\nIt is also in the Settings tab, in the row named adminToken.',
+    SpreadsheetApp.getUi().ButtonSet.OK
+  );
 }
 
 function onOpen() {
@@ -99,6 +137,7 @@ function onOpen() {
     .addItem('Send pending codes', 'sendPendingCodes')
     .addItem('Move to the next day', 'nextDay')
     .addSeparator()
+    .addItem('Show admin token', 'showAdminToken')
     .addItem('Check mail quota', 'showQuota')
     .addToUi();
 }
