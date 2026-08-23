@@ -221,6 +221,25 @@
     $("requestNote").classList.remove("show");
   }
 
+  /* Big, copyable, and impossible to miss — this is now the primary way a
+     student receives their code; the email is only a backup copy. */
+  function showCode(code, mailed, email) {
+    var el = $("requestNote");
+    el.innerHTML =
+      '<div class="code-drop">' +
+        "<div class=\"cd-label\">Your access code</div>" +
+        '<div class="cd-code">' + esc(code) + "</div>" +
+        '<div class="cd-note">' +
+          (mailed
+            ? "Also emailed to " + esc(email) + " — check spam if it is not there."
+            : "Write this down now. The email copy could not be sent.") +
+          " It is already filled in below, so just press Continue." +
+        "</div>" +
+      "</div>";
+    el.classList.add("show");
+    $("gateError").classList.remove("show");
+  }
+
   function gateNote(msg) {
     var el = $("requestNote");
     el.textContent = msg;
@@ -240,8 +259,16 @@
     callApi("request", { email: email })
       .then(function (res) {
         if (!res.ok) return gateError(apiMessage(res));
+
         if (res.pending) {
-          gateNote("Request received. Your tutor will approve it and the code will arrive by email.");
+          return gateNote("Request received. Your tutor will approve it and the code will arrive by email.");
+        }
+
+        // The code is shown here as well as emailed, so a full mailbox or a
+        // mistyped address can never leave anyone locked out.
+        if (res.code) {
+          $("code").value = res.code;
+          showCode(res.code, res.mailed, email);
         } else if (res.resent) {
           gateNote("You already had a code — it has been sent again to " + email + ". Check spam too.");
         } else {

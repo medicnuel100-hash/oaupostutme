@@ -512,28 +512,42 @@ function requestCode(req) {
   var lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
+    var auto = isTrue(cfg.autoApprove);
     var found = findAttempt(email, day);
+
     if (found) {
       var status = String(found.values[COL.status - 1]);
+      var existing = String(found.values[COL.code - 1]);
+
       if (status === 'done')    return { ok: false, error: 'done' };
-      if (status === 'started') return { ok: false, error: 'in_progress' };
-      if (status === 'pending') return { ok: true, pending: true };
-      // Already issued: resend the SAME code rather than minting a second one.
-      return sendCodeEmail(email, found.values[COL.code - 1], cfg)
-        ? { ok: true, resent: true, email: email }
-        : { ok: false, error: 'mail_failed' };
+      if (status === 'started') return { ok: true, resent: true, code: existing, email: email };
+
+      // Someone who requested while approval was manual should not stay stuck
+      // once auto mode is switched on — release them on their next request.
+      if (status === 'pending') {
+        if (!auto) return { ok: true, pending: true, email: email };
+        found.sheet.getRange(found.row, COL.status).setValue('issued');
+      }
+
+      // Already issued: hand back the SAME code, never mint a second one.
+      return {
+        ok: true, resent: true, code: existing, email: email,
+        mailed: sendCodeEmail(email, existing, cfg)
+      };
     }
 
     var code = uniqueCode(day);
-    var auto = isTrue(cfg.autoApprove);
     ss().getSheetByName(TAB_ATTEMPTS).appendRow([
       new Date(), email, day, code, auto ? 'issued' : 'pending',
       '', '', '', '', '', '', '', '', ''
     ]);
 
     if (!auto) return { ok: true, pending: true, email: email };
-    if (sendCodeEmail(email, code, cfg)) return { ok: true, sent: true, email: email };
-    return { ok: false, error: 'mail_failed' };
+
+    // The code is returned regardless of whether the email got out. Gmail's
+    // daily cap must never be able to take the platform down.
+    return { ok: true, sent: true, code: code, email: email,
+             mailed: sendCodeEmail(email, code, cfg) };
   } finally {
     lock.releaseLock();
   }

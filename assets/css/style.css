@@ -496,3 +496,18 @@ textarea.box:focus { border-color: var(--brand); box-shadow: var(--ring); }
   details:not([open]) > .inner { display: block !important; }
   .shell { width: 100%; }
 }
+
+/* Code shown on screen (email is only a backup copy) ----------------- */
+.code-drop { text-align: center; padding: 0.35rem 0; }
+.code-drop .cd-label {
+  font-size: 0.7rem; font-weight: 700; letter-spacing: 0.14em;
+  text-transform: uppercase; opacity: 0.75;
+}
+.code-drop .cd-code {
+  font-family: var(--font-display);
+  font-size: clamp(2rem, 9vw, 2.9rem);
+  font-weight: 700; letter-spacing: 0.22em;
+  line-height: 1.15; margin: 0.35rem 0 0.5rem;
+  user-select: all; -webkit-user-select: all;
+}
+.code-drop .cd-note { font-size: 0.8rem; opacity: 0.85; line-height: 1.5; }
